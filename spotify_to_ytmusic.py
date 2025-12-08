@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import time
+import json.decoder
 from typing import Dict, Tuple, Optional, List
 
 from dotenv import load_dotenv
@@ -23,9 +24,9 @@ SPOTIFY_SCOPE = (
 # Path to your ytmusicapi headers file (created by setup_ytmusic_browser.py)
 YTMUSIC_AUTH_FILE = "headers.json"
 
-# Optional: rate limiting
-SEARCH_SLEEP_SECONDS = 0.1
-ADD_SLEEP_SECONDS = 0.2
+# Optional: rate limiting (increased to avoid API throttling)
+SEARCH_SLEEP_SECONDS = 0.5  # Increased from 0.1 to avoid rate limiting
+ADD_SLEEP_SECONDS = 0.3     # Slight increase for safety
 
 
 # ----- SPOTIFY HELPERS -----
@@ -132,24 +133,52 @@ def find_ytmusic_song(
     yt: YTMusic,
     track: dict,
     cache: Dict[Tuple[str, str], Optional[str]],
-    max_results: int = 5
+    max_results: int = 5,
+    max_retries: int = 3
 ) -> Optional[str]:
     """
     Returns YouTube Music videoId for a Spotify track, or None if not found.
     Uses a simple cache to avoid repeated searches.
+    Includes retry logic with exponential backoff to handle rate limiting.
     """
     key = spotify_track_key(track)
     if key in cache:
         return cache[key]
 
     query = spotify_track_search_query(track)
-    results = yt.search(query, filter="songs", limit=max_results)
-
     video_id = None
-    if results:
-        # naive but usually fine: pick first result
-        candidate = results[0]
-        video_id = candidate.get("videoId") or candidate.get("video_id")
+    
+    # Retry logic with exponential backoff
+    for attempt in range(max_retries):
+        try:
+            results = yt.search(query, filter="songs", limit=max_results)
+            
+            if results:
+                # naive but usually fine: pick first result
+                candidate = results[0]
+                video_id = candidate.get("videoId") or candidate.get("video_id")
+            
+            # Success - break out of retry loop
+            break
+            
+        except json.decoder.JSONDecodeError as e:
+            # Rate limiting detected - retry with exponential backoff
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # 1s, 2s, 4s
+                print(f"  ⚠ Rate limit hit, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                # Final attempt failed
+                artists = ", ".join(a["name"] for a in track.get("artists", []))
+                print(f"  ✗ API error after {max_retries} attempts: {track['name']} – {artists}")
+                video_id = None
+                
+        except Exception as e:
+            # Other unexpected errors
+            artists = ", ".join(a["name"] for a in track.get("artists", []))
+            print(f"  ✗ Unexpected error searching for {track['name']} – {artists}: {e}")
+            video_id = None
+            break
 
     cache[key] = video_id
     time.sleep(SEARCH_SLEEP_SECONDS)
