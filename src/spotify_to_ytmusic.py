@@ -2,7 +2,7 @@
 import os
 import time
 import json.decoder
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Set
 
 from dotenv import load_dotenv
 import spotipy
@@ -27,6 +27,11 @@ YTMUSIC_AUTH_FILE = "headers.json"
 # Optional: rate limiting (increased to avoid API throttling)
 SEARCH_SLEEP_SECONDS = 0.5  # Increased from 0.1 to avoid rate limiting
 ADD_SLEEP_SECONDS = 0.3     # Slight increase for safety
+
+# Duplicate handling mode
+# 'merge' = Add only new songs to existing playlists (recommended)
+# 'skip' = Skip playlists that already exist entirely
+DUPLICATE_MODE = "merge"
 
 
 # ----- SPOTIFY HELPERS -----
@@ -115,6 +120,57 @@ def get_ytmusic_client() -> YTMusic:
     
     return YTMusic(YTMUSIC_AUTH_FILE)
 
+
+def get_all_ytmusic_playlists(yt: YTMusic) -> Dict[str, str]:
+    """
+    Returns a dict of {playlist_name: playlist_id} for all user's playlists.
+    Uses exact name matching (case-sensitive).
+    Includes retry logic for rate limiting.
+    """
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            time.sleep(0.5)  # Small delay before fetching
+            playlists = yt.get_library_playlists(limit=None)
+            return {pl['title']: pl['playlistId'] for pl in playlists}
+        except json.decoder.JSONDecodeError as e:
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                print(f"  ⚠ Rate limit hit while fetching playlists, retrying in {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                print(f"Warning: Could not fetch existing playlists after {max_retries} attempts")
+                return {}
+        except Exception as e:
+            print(f"Warning: Could not fetch existing playlists: {e}")
+            return {}
+    return {}
+
+
+def get_ytmusic_playlist_tracks(yt: YTMusic, playlist_id: str) -> Set[str]:
+    """
+    Returns a set of videoIds for all tracks in a YouTube Music playlist.
+    Includes retry logic for rate limiting.
+    """
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            time.sleep(0.5)  # Small delay before fetching
+            playlist = yt.get_playlist(playlist_id, limit=None)
+            tracks = playlist.get('tracks', [])
+            return {track['videoId'] for track in tracks if track.get('videoId')}
+        except json.decoder.JSONDecodeError as e:
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                print(f"  ⚠ Rate limit hit while fetching playlist tracks, retrying in {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                print(f"  Warning: Could not fetch playlist tracks after {max_retries} attempts")
+                return set()
+        except Exception as e:
+            print(f"  Warning: Could not fetch playlist tracks: {e}")
+            return set()
+    return set()
 
 def spotify_track_key(track: dict) -> Tuple[str, str]:
     title = track["name"].strip().lower()
@@ -206,7 +262,8 @@ def add_tracks_to_yt_playlist(yt: YTMusic, playlist_id: str, video_ids: List[str
 # ----- MIGRATION LOGIC -----
 
 def migrate_single_playlist(sp: spotipy.Spotify, yt: YTMusic, playlist: dict,
-                            cache: Dict[Tuple[str, str], Optional[str]]) -> None:
+                            cache: Dict[Tuple[str, str], Optional[str]],
+                            existing_playlists: Dict[str, str]) -> None:
     name = playlist["name"]
     description = (playlist.get("description") or "") + " (imported from Spotify)"
     print(f"\n=== Migrating playlist: {name} ===")
@@ -214,6 +271,22 @@ def migrate_single_playlist(sp: spotipy.Spotify, yt: YTMusic, playlist: dict,
     tracks = get_playlist_tracks(sp, playlist["id"])
     print(f"  Spotify tracks: {len(tracks)}")
 
+    # Check if playlist already exists (exact name match)
+    existing_video_ids: Set[str] = set()
+    yt_playlist_id: Optional[str] = None
+    
+    if name in existing_playlists:
+        yt_playlist_id = existing_playlists[name]
+        print(f"  ℹ️  Playlist already exists: {yt_playlist_id}")
+        
+        if DUPLICATE_MODE == "skip":
+            print(f"  ⏭️  Skipping (duplicate mode: skip)")
+            return
+        elif DUPLICATE_MODE == "merge":
+            print(f"  🔄 Merging new songs into existing playlist")
+            existing_video_ids = get_ytmusic_playlist_tracks(yt, yt_playlist_id)
+            print(f"  📋 Found {len(existing_video_ids)} existing songs")
+
     video_ids: List[str] = []
     missing = 0
 
@@ -224,28 +297,64 @@ def migrate_single_playlist(sp: spotipy.Spotify, yt: YTMusic, playlist: dict,
             artists = ", ".join(a["name"] for a in t.get("artists", []))
             print(f"  ! Not found on YT Music: {t['name']} – {artists}")
             continue
+        
+        # Skip if song already exists in playlist (for merge mode)
+        if vid in existing_video_ids:
+            continue
+            
         video_ids.append(vid)
 
+    # Filter summary for merge mode
+    if existing_video_ids and DUPLICATE_MODE == "merge":
+        skipped = len(tracks) - missing - len(video_ids)
+        if skipped > 0:
+            print(f"  ℹ️  Skipping {skipped} songs already in playlist")
+
     if not video_ids:
-        print("  No matches found, skipping playlist.")
+        if existing_video_ids:
+            print(f"  ✓ No new songs to add")
+        else:
+            print(f"  No matches found, skipping playlist.")
         return
 
-    yt_playlist_id = create_yt_playlist(yt, name, description)
+    # Create new playlist or add to existing
+    if yt_playlist_id is None:
+        yt_playlist_id = create_yt_playlist(yt, name, description)
+        print(f"  → Created YT Music playlist {yt_playlist_id}")
+    else:
+        print(f"  → Adding {len(video_ids)} new songs to existing playlist")
+    
     add_tracks_to_yt_playlist(yt, yt_playlist_id, video_ids)
+    print(f"  ✓ Added {len(video_ids)} tracks (missing {missing})")
 
-    print(f"  -> Created YT Music playlist {yt_playlist_id}")
-    print(f"  -> Added {len(video_ids)} tracks (missing {missing}).")
 
 
 def migrate_liked_songs(
     sp: spotipy.Spotify,
     yt: YTMusic,
     cache: Dict[Tuple[str, str], Optional[str]],
+    existing_playlists: Dict[str, str],
     playlist_name: str = "Spotify Liked Songs"
 ) -> None:
     print("\n=== Migrating Spotify Liked Songs ===")
     tracks = get_liked_tracks(sp)
     print(f"  Spotify liked tracks: {len(tracks)}")
+
+    # Check if playlist already exists
+    existing_video_ids: Set[str] = set()
+    yt_playlist_id: Optional[str] = None
+    
+    if playlist_name in existing_playlists:
+        yt_playlist_id = existing_playlists[playlist_name]
+        print(f"  ℹ️  Playlist already exists: {yt_playlist_id}")
+        
+        if DUPLICATE_MODE == "skip":
+            print(f"  ⏭️  Skipping (duplicate mode: skip)")
+            return
+        elif DUPLICATE_MODE == "merge":
+            print(f"  🔄 Merging new songs into existing playlist")
+            existing_video_ids = get_ytmusic_playlist_tracks(yt, yt_playlist_id)
+            print(f"  📋 Found {len(existing_video_ids)} existing songs")
 
     video_ids: List[str] = []
     missing = 0
@@ -257,18 +366,36 @@ def migrate_liked_songs(
             artists = ", ".join(a["name"] for a in t.get("artists", []))
             print(f"  ! Not found on YT Music: {t['name']} – {artists}")
             continue
+        
+        # Skip if song already exists in playlist
+        if vid in existing_video_ids:
+            continue
+            
         video_ids.append(vid)
 
+    # Filter summary
+    if existing_video_ids and DUPLICATE_MODE == "merge":
+        skipped = len(tracks) - missing - len(video_ids)
+        if skipped > 0:
+            print(f"  ℹ️  Skipping {skipped} songs already in playlist")
+
     if not video_ids:
-        print("  No liked songs matched, skipping.")
+        if existing_video_ids:
+            print(f"  ✓ No new songs to add")
+        else:
+            print(f"  No liked songs matched, skipping.")
         return
 
+    # Create or update playlist
     description = "Auto-imported from Spotify Liked Songs"
-    yt_playlist_id = create_yt_playlist(yt, playlist_name, description)
+    if yt_playlist_id is None:
+        yt_playlist_id = create_yt_playlist(yt, playlist_name, description)
+        print(f"  → Created YT Music playlist {yt_playlist_id}")
+    else:
+        print(f"  → Adding {len(video_ids)} new songs to existing playlist")
+    
     add_tracks_to_yt_playlist(yt, yt_playlist_id, video_ids)
-
-    print(f"  -> Created YT Music playlist {yt_playlist_id}")
-    print(f"  -> Added {len(video_ids)} liked songs (missing {missing}).")
+    print(f"  ✓ Added {len(video_ids)} liked songs (missing {missing})")
 
 
 def main():
@@ -277,6 +404,12 @@ def main():
 
     print("Authorizing with YouTube Music...")
     yt = get_ytmusic_client()
+    
+    # Fetch existing YouTube Music playlists for duplicate detection
+    print("Fetching existing YouTube Music playlists...")
+    existing_playlists = get_all_ytmusic_playlists(yt)
+    print(f"Found {len(existing_playlists)} existing playlists on YouTube Music")
+    print(f"Duplicate mode: {DUPLICATE_MODE}")
 
     cache: Dict[Tuple[str, str], Optional[str]] = {}
 
@@ -285,10 +418,10 @@ def main():
     print(f"\nFound {len(playlists)} Spotify playlists.")
     for pl in playlists:
         # You can add filters here if you want to skip some playlists
-        migrate_single_playlist(sp, yt, pl, cache)
+        migrate_single_playlist(sp, yt, pl, cache, existing_playlists)
 
     # 2. Migrate liked songs
-    migrate_liked_songs(sp, yt, cache)
+    migrate_liked_songs(sp, yt, cache, existing_playlists)
 
     print("\nDone!")
 

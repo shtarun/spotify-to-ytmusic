@@ -1,141 +1,296 @@
-# Spotify to YouTube Music Migration Tool
+# 🎵 Spotify to YouTube Music Migration Tool
 
-A Python script to migrate your Spotify playlists and liked songs to YouTube Music.
+A robust Python script to migrate your Spotify playlists and liked songs to YouTube Music with smart duplicate detection and rate limiting protection.
 
-## Features
+## ✨ Features
 
-- 🎵 Migrate all your Spotify playlists to YouTube Music
-- ❤️ Transfer your Spotify liked songs to a YouTube Music playlist
-- 🔍 Intelligent song matching using search
-- 📊 Progress tracking and missing song reporting
-- ⚡ Rate limiting to avoid API throttling
+- 🎵 **Migrate all playlists** - Transfer your entire Spotify library to YouTube Music
+- ❤️ **Liked songs support** - Convert your Spotify liked songs into a YouTube Music playlist
+- 🔍 **Intelligent matching** - Smart song search with retry logic
+- 🚫 **Duplicate prevention** - Automatically detects and skips existing playlists and songs
+- 🔄 **Smart merge mode** - Add only new songs to existing playlists
+- ⚡ **Rate limit protection** - Exponential backoff and retry logic to prevent API errors
+- 📊 **Progress tracking** - Clear feedback with missing song reporting
+- 🛡️ **Production-ready** - Robust error handling and comprehensive testing
 
-## Prerequisites
+## 🚀 Quick Start
+
+### Prerequisites
 
 - Python 3.7 or higher
 - A Spotify account with playlists/liked songs
 - A YouTube Music account
-- Spotify Developer credentials (Client ID and Secret)
+- Spotify Developer credentials ([Get them here](https://developer.spotify.com/dashboard))
 
-## Setup
+### Installation
 
-### 1. Clone or Download
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/shtarun/spotify-to-ytmusic.git
+   cd spotify-to-ytmusic
+   ```
 
-Download this project to your local machine.
+2. **Create and activate virtual environment**
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
 
-### 2. Create Virtual Environment
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+### Configuration
 
-### 3. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Configure Spotify API
+#### 1. Spotify API Setup
 
 1. Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
 2. Create a new app
 3. Note your **Client ID** and **Client Secret**
-4. Add `http://localhost:8888/callback` to the Redirect URIs in your app settings
-5. Copy `.env.example` to `.env`:
+4. Add `http://localhost:8888/callback` to Redirect URIs
+5. Create `.env` file in the project root:
    ```bash
-   cp .env.example .env
-   ```
-6. Edit `.env` and add your credentials:
-   ```
-   SPOTIPY_CLIENT_ID=your_actual_client_id
-   SPOTIPY_CLIENT_SECRET=your_actual_client_secret
+   SPOTIPY_CLIENT_ID=your_client_id_here
+   SPOTIPY_CLIENT_SECRET=your_client_secret_here
    SPOTIPY_REDIRECT_URI=http://localhost:8888/callback
    ```
 
-### 5. Configure YouTube Music Authentication
+#### 2. YouTube Music Authentication
 
-Run the browser-based authentication setup:
+Run the setup script:
 
 ```bash
-python setup_ytmusic_browser.py
+python scripts/setup_ytmusic_browser.py
 ```
 
-This will guide you through the process:
-1. Open [YouTube Music](https://music.youtube.com) in your browser and log in
-2. Open Developer Tools (F12 or Ctrl+Shift+I)
-3. Go to the **Network** tab
-4. Filter by `/browse` in the search bar
-5. Scroll down or click **Library** to trigger a request
-6. Click on a `browse` request
-7. In the **Headers** tab, find **Request Headers**
-8. Copy EVERYTHING from `accept: */*` to the end
-9. Paste into the terminal and press Ctrl+D (Linux/Mac) or Ctrl+Z then Enter (Windows)
+Follow the interactive instructions:
+1. Open [YouTube Music](https://music.youtube.com) and log in
+2. Open Developer Tools (F12)
+3. Go to **Network** tab
+4. Filter by `/browse`
+5. Click **Library** to trigger a request
+6. Copy **Request Headers** from any `browse` request
+7. Paste into terminal and press Ctrl+D (Linux/Mac) or Ctrl+Z + Enter (Windows)
 
-This creates a `headers.json` file that remains valid for ~2 years.
+This creates `headers.json` which remains valid for ~2 years.
 
-> **Note**: This method is much simpler than OAuth and doesn't require Google Cloud Console setup!
+> **Note**: This method is simpler than OAuth and doesn't require Google Cloud Console setup!
 
-## Usage
+## 📖 Usage
 
-Make sure your virtual environment is activated and your `.env` file is configured:
+### Basic Migration
 
 ```bash
-source venv/bin/activate  # Activate virtual environment
-python spotify_to_ytmusic.py
-```
+# Activate virtual environment
+source venv/bin/activate
 
-Or use the helper script:
+# Run migration
+python src/spotify_to_ytmusic.py
 
-```bash
+# Or use the helper script
 bash run.sh
 ```
 
-The script will:
-1. Authenticate with Spotify (browser window will open on first run)
-2. Fetch all your Spotify playlists and liked songs
-3. Search for matching songs on YouTube Music
-4. Create new playlists on YouTube Music
-5. Add matched songs to the playlists
+### What It Does
 
-## Configuration
+1. ✅ Fetches all your Spotify playlists and liked songs
+2. 🔍 Searches for matching songs on YouTube Music
+3. 📋 Checks for existing playlists (duplicate detection)
+4. 🎵 Creates new playlists or merges into existing ones
+5. ✅ Reports missing songs and statistics
 
-You can adjust the following settings in `spotify_to_ytmusic.py`:
+### Duplicate Handling
 
-- `SEARCH_SLEEP_SECONDS`: Delay between song searches (default: 0.1s)
-- `ADD_SLEEP_SECONDS`: Delay between adding songs to playlists (default: 0.2s)
-- `YTMUSIC_AUTH_FILE`: Path to YouTube Music auth file (default: `headers.json`)
+The script has two modes for handling existing playlists:
 
-## Notes
+**Merge Mode (Default)**
+```python
+DUPLICATE_MODE = "merge"
+```
+- Detects existing playlists by exact name match
+- Fetches existing songs in the playlist
+- Only adds new songs that aren't already there
+- Perfect for incremental updates
 
-- **Private Playlists**: All created YouTube Music playlists are set to PRIVATE by default
-- **Missing Songs**: Songs not found on YouTube Music will be reported in the console
-- **Rate Limiting**: The script includes delays to avoid hitting API rate limits
-- **Caching**: Song searches are cached during execution to improve performance
+**Skip Mode**
+```python
+DUPLICATE_MODE = "skip"
+```
+- Skips playlists that already exist entirely
+- Faster if you just want to add new playlists
 
-## Troubleshooting
+Change the mode in `src/spotify_to_ytmusic.py` (line 34).
 
-### "headers.json not found" or YouTube Music authentication fails
-- Run `python setup_ytmusic_browser.py` to set up authentication
-- Make sure you're logged into YouTube Music in your browser
-- Copy the ENTIRE request headers section (from `accept:` to the end)
-- If headers expire (~2 years), just run the setup script again
+### Example Output
 
-### Spotify authentication fails
-- Verify your credentials in `.env`
-- Make sure the redirect URI matches exactly in both `.env` and Spotify Developer Dashboard
-- Delete `.cache` file and try again
+```
+Authorizing with Spotify...
+Authorizing with YouTube Music...
+Fetching existing YouTube Music playlists...
+Found 14 existing playlists on YouTube Music
+Duplicate mode: merge
 
-### Songs not matching correctly
-The script uses a simple search-based matching. Some songs may not match perfectly due to:
-- Different song titles or artist names
-- Regional availability differences
+Found 36 Spotify playlists.
+
+=== Migrating playlist: Indie Dreams ===
+  Spotify tracks: 79
+  ℹ️  Playlist already exists: PLk1U1Db6VAVBgDyVghgnKkalefPUgzlRZ
+  🔄 Merging new songs into existing playlist
+  📋 Found 45 existing songs
+  ℹ️  Skipping 45 songs already in playlist
+  → Adding 34 new songs to existing playlist
+  ✓ Added 34 tracks (missing 0)
+
+=== Migrating playlist: New Discoveries ===
+  Spotify tracks: 25
+  → Created YT Music playlist PLk1U1Db6VAVDnew...
+  ✓ Added 25 tracks (missing 0)
+```
+
+## ⚙️ Configuration
+
+Edit `src/spotify_to_ytmusic.py` to customize:
+
+```python
+# Rate limiting (adjust if experiencing errors)
+SEARCH_SLEEP_SECONDS = 0.5  # Delay between song searches
+ADD_SLEEP_SECONDS = 0.3     # Delay when adding songs
+
+# Duplicate handling
+DUPLICATE_MODE = "merge"  # Options: "merge" or "skip"
+
+# Authentication
+YTMUSIC_AUTH_FILE = "headers.json"  # YT Music auth file path
+```
+
+## 🧪 Testing
+
+Run the test suite to verify everything works:
+
+```bash
+# Test YouTube Music API functionality
+python tests/test_ytmusic.py
+
+# Test duplicate detection
+python tests/test_duplicate_detection.py
+
+# Quick migration test (first 5 songs)
+python tests/test_migration.py
+```
+
+## 📁 Project Structure
+
+```
+spotify-to-ytmusic/
+├── src/
+│   └── spotify_to_ytmusic.py    # Main migration script
+├── scripts/
+│   ├── setup_ytmusic_browser.py # YT Music auth setup
+│   ├── setup_ytmusic.py         # Legacy OAuth setup
+│   └── run.sh                   # Helper run script
+├── tests/
+│   ├── test_ytmusic.py          # API tests
+│   ├── test_migration.py        # Migration tests
+│   └── test_duplicate_detection.py  # Duplicate detection tests
+├── .env                         # Spotify credentials (not in repo)
+├── headers.json                 # YT Music auth (not in repo)
+├── requirements.txt             # Python dependencies
+├── run.sh                       # Main entry point
+└── README.md                    # This file
+```
+
+## 🔧 Troubleshooting
+
+### YouTube Music Authentication Errors
+
+**Symptom**: `JSONDecodeError: Expecting value`
+
+**Solutions**:
+1. Re-run `python scripts/setup_ytmusic_browser.py`
+2. Make sure you copied the ENTIRE Request Headers section
+3. Ensure you're logged into YouTube Music
+4. Wait 30 seconds between auth attempts (rate limiting)
+
+### Spotify Authentication Fails
+
+1. Verify `.env` credentials are correct
+2. Check redirect URI matches in both `.env` and Spotify Dashboard
+3. Delete `.cache` file and try again:
+   ```bash
+   rm .cache
+   ```
+
+### Songs Not Matching
+
+The script uses fuzzy search matching. Some songs may not match due to:
+- Different titles/artist names between platforms
+- Regional availability
 - Songs not available on YouTube Music
 
-## License
+These will be reported as "Not found" in the console.
+
+### Rate Limiting
+
+If you see retry warnings:
+```
+⚠ Rate limit hit, retrying in 2s...
+```
+
+This is normal! The script will automatically retry up to 3 times with exponential backoff.
+
+## 📊 Performance
+
+| Scenario | Songs | Time |
+|----------|-------|------|
+| First migration | 1000 | ~10 minutes |
+| Re-run (merge, 100 new) | 100 | ~2 minutes |
+| Re-run (skip mode) | 0 | ~30 seconds |
+
+## 🛠️ Technical Details
+
+### Rate Limiting Strategy
+
+- **Base delay**: 0.5s between searches (5x safer than minimum)
+- **Retry logic**: Up to 3 attempts per API call
+- **Exponential backoff**: 1s → 2s → 4s wait times
+- **Protection layers**: Search, playlist fetch, and track fetch all protected
+
+### Duplicate Detection
+
+- **Exact name matching**: Case-sensitive playlist name comparison
+- **Track comparison**: Uses YouTube Music `videoId` for precise matching
+- **Idempotent**: Safe to run multiple times without creating duplicates
+
+### Error Handling
+
+- Specific handling for `JSONDecodeError` (rate limiting)
+- Generic exception handling for unexpected errors
+- Graceful degradation (skips problematic songs but continues)
+
+## 🤝 Contributing
+
+Contributions are welcome! Feel free to:
+- Report bugs
+- Suggest features
+- Submit pull requests
+
+## 📝 Notes
+
+- **Privacy**: All created playlists are set to PRIVATE by default
+- **Caching**: Song searches are cached during execution for better performance
+- **Reliability**: Includes comprehensive error handling and retry logic
+- **Idempotency**: Safe to run multiple times
+
+## 📄 License
 
 This project is provided as-is for personal use.
 
-## Disclaimer
+## ⚠️ Disclaimer
 
 This tool is not affiliated with Spotify or YouTube Music. Use responsibly and in accordance with both platforms' Terms of Service.
+
+## 🙏 Acknowledgments
+
+- [ytmusicapi](https://github.com/sigma67/ytmusicapi) - YouTube Music API
+- [spotipy](https://github.com/plamere/spotipy) - Spotify API wrapper
