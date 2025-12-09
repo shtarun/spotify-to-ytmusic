@@ -14,6 +14,7 @@ A robust Python script to migrate your Spotify playlists and liked songs to YouT
 - ⚡ **Rate limit protection** - Exponential backoff and retry logic to prevent API errors
 - 📊 **Progress tracking** - Clear feedback with missing song reporting
 - 🛡️ **Production-ready** - Robust error handling and comprehensive testing
+- 📛 **Smart Naming** - Auto-fallback for playlist names that YouTube rejects
 
 ## 🚀 Quick Start
 
@@ -260,7 +261,12 @@ This is normal! The script will automatically retry up to 3 times with exponenti
 - **Base delay**: 0.5s between searches (5x safer than minimum)
 - **Retry logic**: Up to 3 attempts per API call
 - **Exponential backoff**: 1s → 2s → 4s wait times
-- **Protection layers**: Search, playlist fetch, and track fetch all protected
+- **Protection layers**: Search, playlist fetch, creation, and addition all protected with retry logic
+
+### Robustness Features
+
+- **Smart Fallback Naming**: If YouTube rejects a playlist name (e.g. contains invalid characters or emojis), the script automatically sanitizes it. If that fails, it falls back to a safe default (`Imported Playlist <date>`).
+- **Comprehensive Retry Logic**: Handles both 429 (Too Many Requests) and transient 5xx errors across all API operations.
 
 ### Duplicate Detection
 

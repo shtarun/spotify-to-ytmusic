@@ -343,6 +343,11 @@ def find_ytmusic_song(
 
 
 def create_yt_playlist(yt: YTMusic, name: str, description: str) -> str:
+    # YouTube max title length is 150 chars
+    if len(name) > 150:
+        print(f"  ⚠ Truncating playlist name from {len(name)} to 150 chars")
+        name = name[:150]
+
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -358,13 +363,42 @@ def create_yt_playlist(yt: YTMusic, name: str, description: str) -> str:
                 print(f"  ⚠ Rate limit hit creating playlist, retrying in {wait_time}s...")
                 time.sleep(wait_time)
             else:
-                print(f"  ✗ Failed to create playlist after {max_retries} attempts")
+                print(f"  ✗ Failed to create playlist '{name}' after {max_retries} attempts (Rate Limit)")
                 raise e
         except Exception as e:
-            print(f"  ✗ Creating playlist failed: {e}")
+            # If it's a 400 Bad Request, retrying the exact same thing won't help unless we change something
+            # But sometimes it's transient?
+            error_str = str(e)
+            if "400" in error_str and "invalid argument" in error_str.lower():
+                print(f"  ✗ Invalid argument error for playlist '{name}'")
+                print(f"    Description length: {len(description)}")
+                # Try one fallback: empty description, strict name sanitization
+                if attempt == 0:
+                     print("    → Retrying with empty description and sanitized name...")
+                     description = ""
+                     original_name = name
+                     name = "".join(c for c in name if c.isalnum() or c in " -_").strip()
+                     print(f"    → Sanitized name: '{name}'")
+                     
+                     if not name:
+                         name = f"Imported Playlist {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                         print(f"    → Sanitized name was empty, using fallback: '{name}'")
+                     continue
+            
+            print(f"  ✗ Creating playlist '{name}' failed: {e}")
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt)
             else:
+                print(f"  ! Checking if playlist was actually created despite error...")
+                # Search for it just in case
+                try:
+                    results = yt.get_library_playlists(limit=20)
+                    for pl in results:
+                        if pl['title'] == name:
+                            print(f"  ✓ Found playlist '{name}' despite error!")
+                            return pl['playlistId']
+                except:
+                    pass
                 raise e
     return ""
 
