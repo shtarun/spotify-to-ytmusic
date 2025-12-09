@@ -145,7 +145,7 @@ The script now saves its progress to `.migration_state.json` (git-ignored).
          ✓ Found (cached from previous run)
          
   [3/79] 🔍 Searching: unknown song - artist
-         ! Not found on YT Music: unknown song - artist
+         ✗ Not found on YouTube Music
 
   ℹ️  Playlist already exists: PLk1U1Db6VAVBgDyVghgnKkalefPUgzlRZ
   🔄 Merging new songs into existing playlist

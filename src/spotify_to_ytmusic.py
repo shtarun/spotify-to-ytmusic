@@ -294,6 +294,8 @@ def find_ytmusic_song(
                 candidate = results[0]
                 video_id = candidate.get("videoId") or candidate.get("video_id")
                 print(f"         ✓ Found on YouTube Music")
+            else:
+                print(f"         ✗ Not found on YouTube Music")
             
             break
             
