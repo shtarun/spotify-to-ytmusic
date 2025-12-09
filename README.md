@@ -9,6 +9,8 @@ A robust Python script to migrate your Spotify playlists and liked songs to YouT
 - 🔍 **Intelligent matching** - Smart song search with retry logic
 - 🚫 **Duplicate prevention** - Automatically detects and skips existing playlists and songs
 - 🔄 **Smart merge mode** - Add only new songs to existing playlists
+- 💾 **State persistence** - Resumes interrupted migrations and avoids re-searching songs
+- 📝 **Detailed logging** - Shows song names and creates readable reports of missing songs
 - ⚡ **Rate limit protection** - Exponential backoff and retry logic to prevent API errors
 - 📊 **Progress tracking** - Clear feedback with missing song reporting
 - 🛡️ **Production-ready** - Robust error handling and comprehensive testing
@@ -122,30 +124,34 @@ DUPLICATE_MODE = "skip"
 
 Change the mode in `src/spotify_to_ytmusic.py` (line 34).
 
+### State Persistence
+
+The script now saves its progress to `.migration_state.json` (git-ignored).
+- **Resumable**: If you stop the script, it picks up where it left off.
+- **Efficient**: Successful searches are cached forever, saving API calls on future runs.
+- **Reporting**: Failed songs are saved to `failed_songs.txt` for easy review.
+
 ### Example Output
 
 ```
-Authorizing with Spotify...
-Authorizing with YouTube Music...
-Fetching existing YouTube Music playlists...
-Found 14 existing playlists on YouTube Music
-Duplicate mode: merge
-
-Found 36 Spotify playlists.
-
 === Migrating playlist: Indie Dreams ===
   Spotify tracks: 79
+  
+  [1/79] 🔍 Searching: Left Hand Free - alt-J
+         ✓ Found on YouTube Music
+         
+  [2/79] 🔍 Searching: back to friends - sombr
+         ✓ Found (cached from previous run)
+         
+  [3/79] 🔍 Searching: unknown song - artist
+         ! Not found on YT Music: unknown song - artist
+
   ℹ️  Playlist already exists: PLk1U1Db6VAVBgDyVghgnKkalefPUgzlRZ
   🔄 Merging new songs into existing playlist
   📋 Found 45 existing songs
   ℹ️  Skipping 45 songs already in playlist
   → Adding 34 new songs to existing playlist
-  ✓ Added 34 tracks (missing 0)
-
-=== Migrating playlist: New Discoveries ===
-  Spotify tracks: 25
-  → Created YT Music playlist PLk1U1Db6VAVDnew...
-  ✓ Added 25 tracks (missing 0)
+  ✓ Added 34 tracks (missing 1)
 ```
 
 ## ⚙️ Configuration

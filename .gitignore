@@ -49,3 +49,5 @@ browser.json
 
 # Logs
 *.log
+.migration_state.json
+failed_songs.txt
